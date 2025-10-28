@@ -1,0 +1,47 @@
+import processing.serial.*;
+
+Serial myPort;
+
+int v1 = 0, v2 = 0, v3 = 0, v4 = 0;  // raw 0-1023
+float xPos, yPos, sizeObj, angleRot;
+
+void setup() {
+  size(800, 600);
+  println(Serial.list());
+  myPort = new Serial(this, Serial.list()[0], 115200);
+  myPort.bufferUntil('\n');
+}
+
+void draw() {
+  background(30);
+
+  // map raw values to usable ranges
+  xPos    = map(v1, 0, 1023, 0, width);
+  yPos    = map(v2, 0, 1023, 0, height);
+  sizeObj = map(v3, 0, 1023, 20, 200);
+  angleRot = map(v4, 0, 1023, 0, TWO_PI);
+
+  // draw object
+  pushMatrix();
+  translate(xPos, yPos);
+  rotate(angleRot);
+
+  fill(0,150,255);
+  noStroke();
+  ellipse(0, 0, sizeObj, sizeObj);
+
+  popMatrix();
+}
+
+void serialEvent(Serial p) {
+  String line = trim(p.readStringUntil('\n'));
+  if (line == null || line.length() == 0) return;
+
+  String[] vals = split(line, ' ');
+  if (vals.length == 4) {
+    v1 = int(vals[0]);
+    v2 = int(vals[1]);
+    v3 = int(vals[2]);
+    v4 = int(vals[3]);
+  }
+}
