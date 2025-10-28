@@ -1,72 +1,89 @@
-// Processing (Java mode)
-// Sketch: Potentiometer controls a circle X-position and size
+// sketch.js
+let port = null;
+let reader = null;
+let latestValue = 0; // 0..1023 from Arduino
 
-import processing.serial.*;
+// --- UI wiring ---
+const statusEl = document.getElementById('status');
+const connectBtn = document.getElementById('connectBtn');
 
-Serial ser;
-String PORT_NAME = "/dev/ttyUSB0";  // CHANGE THIS if needed
-int BAUD = 115200;
-
-int raw = 0;          // last raw value 0..1023
-float mappedX = 0;    // mapped 0..width
-float mappedSize = 50;
-
-void setup() {
-  size(800, 400);
-  surface.setTitle("Potentiometer Visualizer (Processing Java)");
-  
-  // Uncomment to print ports first run; then set PORT_NAME and restart
-  // println(Serial.list());
-  // exit();
-  
+connectBtn.addEventListener('click', async () => {
   try {
-    ser = new Serial(this, PORT_NAME, BAUD);
-    ser.bufferUntil('\n');
-  } catch (Exception e) {
-    println("Could not open serial port: " + PORT_NAME);
-    println("Available ports:");
-    println(Serial.list());
+    if (!('serial' in navigator)) {
+      status('Web Serial not supported. Use Chrome/Edge over HTTPS.');
+      return;
+    }
+
+    // Ask user to pick the Arduino
+    port = await navigator.serial.requestPort();
+    await port.open({ baudRate: 115200 }); // match your Arduino sketch!
+
+    status('Connected. Reading…');
+    connectBtn.disabled = true;
+
+    // Stream text lines from serial
+    const textDecoder = new TextDecoderStream();
+    const readableStreamClosed = port.readable.pipeTo(textDecoder.writable);
+    reader = textDecoder.readable.getReader();
+
+    readLoop(); // start reading in background
+  } catch (err) {
+    status('Connect failed: ' + err.message);
+    console.error(err);
+  }
+});
+
+function status(msg) { statusEl.textContent = msg; }
+
+async function readLoop() {
+  try {
+    let buffer = '';
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      if (value) {
+        buffer += value;
+        let lines = buffer.split('\n');
+        buffer = lines.pop(); // keep incomplete
+        for (const line of lines) {
+          const t = line.trim();
+          if (!t) continue;
+          const v = parseInt(t, 10);
+          if (!Number.isNaN(v)) {
+            // clamp 0..1023
+            latestValue = Math.max(0, Math.min(1023, v));
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error('readLoop error', err);
+    status('Disconnected.');
+  } finally {
+    try { reader && reader.releaseLock(); } catch {}
+    try { port && (await port.close()); } catch {}
+    connectBtn.disabled = false;
   }
 }
 
-void draw() {
-  background(245);
-  
-  // Map 0..1023 to screen coordinates/size
-  mappedX = map(raw, 0, 1023, 50, width-50);
-  mappedSize = map(raw, 0, 1023, 20, 200);
-  
-  // Axis
-  stroke(200);
-  line(50, height/2, width-50, height/2);
-  
-  // Circle
+// --- p5 sketch: move a circle with the pot value ---
+let W = 800, H = 400;
+
+function setup() {
+  const c = createCanvas(W, H);
+  c.parent('sketch-holder');
   noStroke();
-  fill(50, 150, 255, 220);
-  ellipse(mappedX, height/2, mappedSize, mappedSize);
-  
-  // HUD
-  fill(30);
-  text("Raw: " + raw, 10, 20);
-  text("Port: " + PORT_NAME, 10, 40);
-  text("Tip: press 'p' to list ports in console", 10, 60);
+  textFont('system-ui');
 }
 
-void serialEvent(Serial s) {
-  String line = s.readStringUntil('\n');
-  if (line == null) return;
-  line = trim(line);
-  if (line.length() == 0) return;
-  try {
-    raw = constrain(Integer.parseInt(line), 0, 1023);
-  } catch (Exception e) {
-    // ignore malformed lines
-  }
+function draw() {
+  background(245);
+  fill(20);
+  textSize(14);
+  text('Pot value: ' + latestValue, 12, 22);
+
+  const x = map(latestValue, 0, 1023, 40, W - 40);
+  fill(50, 120, 255);
+  circle(x, H / 2, 80);
 }
 
-void keyPressed() {
-  if (key == 'p' || key == 'P') {
-    println("Ports:");
-    println(Serial.list());
-  }
-}
